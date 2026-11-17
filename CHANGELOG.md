@@ -35,7 +35,7 @@ the fork diverged from upstream:
 - Autoroot failure budget: the on-device helper counts only truly
   incomplete attempts across boots (an attempt that started but
   never recorded a verdict - the crash/freeze signature; clean race
-  losses never count) and stands itself down after 5 in a row,
+  losses never count) and stands itself down after 10 in a row,
   posting a persistent notification instead of crash-looping the
   device on every boot. The user can re-enable autoroot from the
   helper screen, where the risk is stated; the budget re-arms after
@@ -64,6 +64,17 @@ the fork diverged from upstream:
   certificate fingerprint and fails on a mismatch or a missing
   keystore instead of letting a replacement key be generated, since
   devices refuse signature-mismatched APK updates.
+
+### Changed
+
+- The autoroot failure-budget stand-down threshold rises from 5 to
+  10 consecutive truly incomplete boots. Live sessions showed the
+  verdict-less (crash/freeze) loss shape is common enough on a
+  healthy unit that a streak of 5 was within reach of ordinary bad
+  luck; 10 keeps the cross-boot bound on a deterministically
+  wedging unit while making a false stand-down far less likely.
+  The helper screen, the stand-down notification and the docs state
+  the new number. Autoroot helper 1.8 (versionCode 9).
 
 ### Fixed
 
