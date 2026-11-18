@@ -5883,6 +5883,14 @@ class PortalProvisioner:
             # into the autoroot helper, so unstaging autoroot removes
             # the same authorized line through the same action.
             environment["GHOSTLOCK_SHIZUKU_REMOVE_KEY"] = "1"
+        appdata_dump_spec = os.environ.get("PORTAL_APPDATA_DUMP")
+        if appdata_dump_spec:
+            # Native file-copy action in the exploit payload (see
+            # run_appdata_dump in exploit/src/fops.c): the delegated
+            # child with the installer credential copies each
+            # "src>dst" pair verbatim. Host-side opt-in only; nothing
+            # sets GHOSTLOCK_APPDATA_DUMP on the device otherwise.
+            environment["GHOSTLOCK_APPDATA_DUMP"] = appdata_dump_spec
         if self.custom_payload is not None and self._in_custom_payload_phase:
             # The payload action belongs only to the custom-payload
             # phase. In the combined flow the standard install runs
