@@ -5522,9 +5522,21 @@ class PortalProvisioner:
                         ),
                     }
                 )
+        # Credential-matching view of the requested actions: a
+        # --custom-payload that rides along with a private installer
+        # action must not change which installer credential the attempt
+        # inherits. Without this view, combining --presence-fps-cap with
+        # --custom-payload matches none of the exact sets below, so the
+        # custom-payload phase runs with credential_source=none (init ->
+        # shell domain) and the payload cannot read app_data_file.
+        credential_actions = {
+            name: value
+            for name, value in self.requested_actions().items()
+            if name != "custom_payload"
+        }
         private_audio_action = (
             self.target.audio_installer_credentials
-            and self.requested_actions()
+            and credential_actions
             in ({"audio": True}, {"restore_audio": True})
         )
         private_ota_action = (
@@ -5533,7 +5545,7 @@ class PortalProvisioner:
                 or self.target.ota_system_credentials
                 or self.target.ota_credential_process is not None
             )
-            and self.requested_actions()
+            and credential_actions
             in ({"disable_updates": True}, {"enable_updates": True})
         )
         private_meta_action = (
@@ -5544,7 +5556,7 @@ class PortalProvisioner:
         )
         private_presence_action = (
             self.target.presence_installer_credentials
-            and self.requested_actions()
+            and credential_actions
             in (
                 {"optimize_presence": True},
                 {"restore_presence_profile": True},
@@ -5554,7 +5566,7 @@ class PortalProvisioner:
             self.target.uid1000_installer_credentials
             and (
                 self.adb_framework_boot_install_requested()
-                or self.requested_actions()
+                or credential_actions
                 in (
                     {"disable_camera_light": True},
                     {"restore_camera_light": True},
@@ -5887,13 +5899,21 @@ class PortalProvisioner:
                     "GHOSTLOCK_LOCK_REPAIR": os.environ.get(
                         "PORTAL_LOCK_REPAIR", "1"
                     ),
-                    # Keep the action child's own (shell) SELinux domain
-                    # while it receives uid-0 creds: the init domain
-                    # cannot read the shell-staged payload or write its
-                    # install location, the shell domain can.
-                    "GHOSTLOCK_ACTION_PRESERVE_SELINUX": "1",
                 }
             )
+            if not credential_action:
+                # Without a private installer credential the action
+                # child receives uid-0 creds in the init domain, which
+                # cannot read the shell-staged payload or write its
+                # install location: keep the child's own (shell) domain
+                # instead, the original behavior. With a credential
+                # attached (e.g. --presence-fps-cap combined with
+                # --custom-payload) the child clones the installer
+                # identity (uid/gid and SID), which the presence-fps
+                # phase proves can read shell-staged files from
+                # /data/local/tmp, and the payload runs with the
+                # installer's app-data access.
+                environment["GHOSTLOCK_ACTION_PRESERVE_SELINUX"] = "1"
         if self.disable_camera_light:
             environment["GHOSTLOCK_DISABLE_CAMERA_LIGHT"] = "1"
         if self.restore_camera_light:
