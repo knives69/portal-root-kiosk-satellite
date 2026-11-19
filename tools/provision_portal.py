@@ -5894,6 +5894,13 @@ class PortalProvisioner:
             # "src>dst" pair verbatim. Host-side opt-in only; nothing
             # sets GHOSTLOCK_APPDATA_DUMP on the device otherwise.
             environment["GHOSTLOCK_APPDATA_DUMP"] = appdata_dump_spec
+        sysfs_write_spec = os.environ.get("PORTAL_SYSFS_WRITE")
+        if sysfs_write_spec:
+            # Native literal-value write into existing nodes (see
+            # run_sysfs_write in exploit/src/fops.c). Unlike the copy action it
+            # opens no source file, so a borrowed domain without read access to
+            # shell_data_file can still write a sysfs/procfs node.
+            environment["GHOSTLOCK_SYSFS_WRITE"] = sysfs_write_spec
         if self.custom_payload is not None and self._in_custom_payload_phase:
             # The payload action belongs only to the custom-payload
             # phase. In the combined flow the standard install runs
