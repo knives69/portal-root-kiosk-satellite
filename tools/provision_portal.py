@@ -5901,6 +5901,27 @@ class PortalProvisioner:
             # opens no source file, so a borrowed domain without read access to
             # shell_data_file can still write a sysfs/procfs node.
             environment["GHOSTLOCK_SYSFS_WRITE"] = sysfs_write_spec
+        sysfs_donor = os.environ.get("PORTAL_SYSFS_CHILD_DONOR")
+        if sysfs_donor and os.environ.get("PORTAL_SYSFS_WRITE"):
+            # A second delegated child is patched with this donor, so one
+            # window carries two credentials (e.g. installd + hal_perf).
+            donor_pids = self.adb_run(
+                ["shell", "pidof", sysfs_donor.strip()], timeout=5, check=True
+            ).stdout.strip().split()
+            if not donor_pids:
+                raise ProvisionError(
+                    f"could not resolve sysfs child donor {sysfs_donor!r}"
+                )
+            donor_uid = self.adb_run(
+                ["shell", "stat", "-c", "%u", f"/proc/{donor_pids[0]}"],
+                timeout=5, check=True,
+            ).stdout.strip()
+            if donor_uid != "0":
+                raise ProvisionError(
+                    f"sysfs child donor {sysfs_donor!r} is uid {donor_uid}, need 0"
+                )
+            environment["GHOSTLOCK_SYSFS_CHILD_DONOR"] = donor_pids[0]
+            print(f"SYSTEM_CHILD_DONOR process={sysfs_donor.strip()} pid={donor_uid and donor_pids[0]}")
         if self.custom_payload is not None and self._in_custom_payload_phase:
             # The payload action belongs only to the custom-payload
             # phase. In the combined flow the standard install runs
