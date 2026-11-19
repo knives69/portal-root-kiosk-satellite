@@ -13,9 +13,9 @@ M1 of the monolith split; the provisioner holds a DeviceSession and
 delegates through thin wrappers so existing call sites are unchanged.
 """
 
-import os
-
 from __future__ import annotations
+
+import os
 
 import re
 import shlex
