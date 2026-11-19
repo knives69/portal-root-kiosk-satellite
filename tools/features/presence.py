@@ -752,23 +752,44 @@ class PresenceFeature:
             ["shell", "am", "force-stop", "--user", "0", host_package],
             timeout=10,
         )
-        result = self._adb_run(
-            [
-                "shell",
-                "cmd",
-                "package",
-                "compile",
-                "-f",
-                "-m",
-                "speed",
-                host_package,
-            ],
-            timeout=120,
-        )
-        if result.returncode != 0 or "Success" not in result.stdout:
+        # The compile races the framework's post-boot bring-up: adb answers
+        # before PackageManagerService publishes its binder, so a single call
+        # fails intermittently right after the clean boot. Wait for the boot
+        # flag and retry a bounded number of times.
+        for _ in range(30):
+            boot = self._adb_run(
+                ["shell", "getprop", "sys.boot_completed"], timeout=5
+            ).stdout.strip()
+            if boot == "1":
+                break
+            time.sleep(1)
+        result = None
+        for attempt in range(1, 4):
+            result = self._adb_run(
+                [
+                    "shell",
+                    "cmd",
+                    "package",
+                    "compile",
+                    "-f",
+                    "-m",
+                    "speed",
+                    host_package,
+                ],
+                timeout=120,
+            )
+            if result.returncode == 0 and "Success" in result.stdout:
+                break
+            print(
+                f"UID1000_ART_CACHE_RETRY attempt={attempt} "
+                f"rc={result.returncode}",
+                flush=True,
+            )
+            time.sleep(3)
+        if result is None or result.returncode != 0 or "Success" not in result.stdout:
             raise ProvisionError(
                 "could not generate the guarded UID-1000 host ART cache: "
-                + result.stdout
+                + (result.stdout if result else "")
             )
         print(
             f"CAMERA_LIGHT_ART_CACHE_OK host={self._target().uid1000_host_label} "
