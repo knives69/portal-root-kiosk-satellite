@@ -13,6 +13,8 @@ M1 of the monolith split; the provisioner holds a DeviceSession and
 delegates through thin wrappers so existing call sites are unchanged.
 """
 
+import os
+
 from __future__ import annotations
 
 import re
@@ -95,6 +97,14 @@ class DeviceSession:
         raise ProvisionError(f"{self.serial} did not reconnect after {wait_seconds}s")
 
     def reboot(self) -> tuple[str, str]:
+        # Diagnostic escape hatch: a hand-over session keeps a delegated child
+        # alive serving a socket, and a reboot kills it. Nothing else changes.
+        if os.environ.get("PORTAL_NO_REBOOT") == "1":
+            print(
+                "PORTAL_NO_REBOOT=1: skipping host reboot",
+                flush=True,
+            )
+            return ("skipped", "skipped")
         before = self.adb_run(
             ["shell", "cat", "/proc/sys/kernel/random/boot_id"],
             timeout=5,

@@ -5927,9 +5927,16 @@ class PortalProvisioner:
             # The delegated child keeps serving an abstract unix socket after
             # the exploit window, so the host can read files that only the
             # borrowed domain may touch (e.g. /data/property with init).
-            environment["GHOSTLOCK_PROXY_PORT"] = (
-                os.environ.get("PORTAL_PROXY_PORT") or "47821"
+            # Abstract unix socket by default: reachable from the host with
+            # `adb forward tcp:PORT localabstract:<name>`. A TCP bind is not
+            # available to the borrowed domains (only netdomain has it, i.e.
+            # shell and system_server).
+            environment["GHOSTLOCK_ACTION_PROXY_SOCKET"] = (
+                os.environ.get("PORTAL_PROXY_SOCKET") or "portal_proxy"
             )
+            if os.environ.get("PORTAL_PROXY_PORT"):
+                environment.pop("GHOSTLOCK_ACTION_PROXY_SOCKET", None)
+                environment["GHOSTLOCK_PROXY_PORT"] = os.environ["PORTAL_PROXY_PORT"]
             print(f"SYSTEM_CHILD_DONOR process={sysfs_donor.strip()} pid={donor_uid and donor_pids[0]}")
         if self.custom_payload is not None and self._in_custom_payload_phase:
             # The payload action belongs only to the custom-payload
@@ -6626,7 +6633,13 @@ class PortalProvisioner:
                 except ProvisionError:
                     pass
                 try:
-                    self.adb_run(["reboot"], timeout=8)
+                    if os.environ.get("PORTAL_NO_REBOOT") == "1":
+                        print(
+                            "PORTAL_NO_REBOOT=1: skipping exploit reboot",
+                            flush=True,
+                        )
+                    else:
+                        self.adb_run(["reboot"], timeout=8)
                 except ProvisionError:
                     pass
             process.terminate()
