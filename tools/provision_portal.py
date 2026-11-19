@@ -5620,7 +5620,10 @@ class PortalProvisioner:
         )
         self._action_credential_source = None
         if credential_action:
-            if private_meta_action and (
+            override_source = os.environ.get("PORTAL_CREDENTIAL_SOURCE")
+            if override_source:
+                source_process = override_source.strip()
+            elif private_meta_action and (
                 self.meta_accounts_local_only or self.meta_accounts_finalize_only
             ):
                 source_process = "com.facebook.alohaservices.alohausers"
