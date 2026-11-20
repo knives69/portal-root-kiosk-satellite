@@ -756,15 +756,21 @@ class PresenceFeature:
         # before PackageManagerService publishes its binder, so a single call
         # fails intermittently right after the clean boot. Wait for the boot
         # flag and retry a bounded number of times.
-        for _ in range(30):
-            boot = self._adb_run(
-                ["shell", "getprop", "sys.boot_completed"], timeout=5
-            ).stdout.strip()
+        # A clean-boot reboot can leave adb unreachable for a while: wait on the
+        # boot flag for up to four minutes instead of assuming the framework is
+        # already up when the first command succeeds.
+        for _ in range(120):
+            try:
+                boot = self._adb_run(
+                    ["shell", "getprop", "sys.boot_completed"], timeout=5
+                ).stdout.strip()
+            except ProvisionError:
+                boot = ""
             if boot == "1":
                 break
-            time.sleep(1)
+            time.sleep(2)
         result = None
-        for attempt in range(1, 4):
+        for attempt in range(1, 5):
             result = self._adb_run(
                 [
                     "shell",
@@ -785,7 +791,7 @@ class PresenceFeature:
                 f"rc={result.returncode}",
                 flush=True,
             )
-            time.sleep(3)
+            time.sleep(10)
         if result is None or result.returncode != 0 or "Success" not in result.stdout:
             raise ProvisionError(
                 "could not generate the guarded UID-1000 host ART cache: "

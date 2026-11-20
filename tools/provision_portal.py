@@ -5902,7 +5902,7 @@ class PortalProvisioner:
             # shell_data_file can still write a sysfs/procfs node.
             environment["GHOSTLOCK_SYSFS_WRITE"] = sysfs_write_spec
         sysfs_donor = os.environ.get("PORTAL_SYSFS_CHILD_DONOR")
-        if sysfs_donor and os.environ.get("PORTAL_SYSFS_WRITE"):
+        if sysfs_donor:
             # A second delegated child is patched with this donor, so one
             # window carries two credentials (e.g. installd + hal_perf).
             donor_pids = self.adb_run(
