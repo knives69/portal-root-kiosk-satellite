@@ -5901,6 +5901,14 @@ class PortalProvisioner:
             # opens no source file, so a borrowed domain without read access to
             # shell_data_file can still write a sysfs/procfs node.
             environment["GHOSTLOCK_SYSFS_WRITE"] = sysfs_write_spec
+        for env_name, source in (
+            ("PORTAL_PROPS_WRITE", "GHOSTLOCK_PROPS_WRITE"),
+            ("PORTAL_KILL_COMM", "GHOSTLOCK_KILL_COMM"),
+            ("PORTAL_KILL_SIG", "GHOSTLOCK_KILL_SIG"),
+        ):
+            value = os.environ.get(env_name)
+            if value:
+                environment[source] = value
         sysfs_donor = os.environ.get("PORTAL_SYSFS_CHILD_DONOR")
         if sysfs_donor:
             # A second delegated child is patched with this donor, so one
