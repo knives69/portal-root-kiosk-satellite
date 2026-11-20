@@ -128,6 +128,14 @@ class DeviceSession:
         return before, after
 
     def connect_after_reboot(self, before: str, wait_seconds: int = 600) -> str:
+        if os.environ.get("PORTAL_NO_REBOOT") == "1":
+            # Nothing was rebooted, so there is no new boot id to wait for: the
+            # 600 s loop would only time out and abort the session.
+            print(
+                "PORTAL_NO_REBOOT=1: skipping the boot-id wait",
+                flush=True,
+            )
+            return before
         try:
             self.run(["adb", "disconnect", self.serial], timeout=5)
         except ProvisionError:
