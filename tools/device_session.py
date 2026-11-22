@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 import shlex
 import subprocess
+import os
 import time
 from collections.abc import Callable
 
@@ -146,6 +147,12 @@ class DeviceSession:
         raise ProvisionError(message)
 
     def reboot(self) -> tuple[str, str]:
+        # Escape hatch (portado del fork): mantiene viva la ventana
+        # privilegiada para combinar fases (p.ej. --presence-fps-cap con
+        # --autoroot) sin que el reinicio del host la corte.
+        if os.environ.get("PORTAL_NO_REBOOT") == "1":
+            print("PORTAL_NO_REBOOT=1: skipping host reboot", flush=True)
+            return ("skipped", "skipped")
         before = self.adb_run(
             ["shell", "cat", "/proc/sys/kernel/random/boot_id"],
             timeout=5,
@@ -169,6 +176,9 @@ class DeviceSession:
         return before, after
 
     def connect_after_reboot(self, before: str, wait_seconds: int = 600) -> str:
+        if os.environ.get("PORTAL_NO_REBOOT") == "1":
+            print("PORTAL_NO_REBOOT=1: skipping the boot-id wait", flush=True)
+            return before
         try:
             self.run(["adb", "disconnect", self.serial], timeout=5)
         except ProvisionError:

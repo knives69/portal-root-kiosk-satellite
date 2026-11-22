@@ -209,7 +209,7 @@ class ShizukuFeature:
                 "files/adbkey.pub",
             ),
         ):
-            self._adb_run(["push", str(source), remote], timeout=15, check=True)
+            self._adb_run(["push", str(source), remote], timeout=60, check=True)
             self._adb_run(["shell", "chmod", "0644", remote], timeout=5, check=True)
             self._adb_run(
                 ["shell", "run-as", SHIZUKU_HELPER_PACKAGE, "mkdir", "-p", "files"],

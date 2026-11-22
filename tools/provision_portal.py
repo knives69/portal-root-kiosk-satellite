@@ -1618,14 +1618,14 @@ class PortalProvisioner:
         if self.uses_exploit_sentinel():
             path = self.adb_run(
                 ["shell", "pm", "path", EXPLOIT_SENTINEL_PACKAGE],
-                timeout=10,
+                timeout=30,
             ).stdout
             if not path.startswith("package:"):
                 return "sentinel-missing"
         if self.autoroot:
             path = self.adb_run(
                 ["shell", "pm", "path", AUTOROOT_HELPER_PACKAGE],
-                timeout=10,
+                timeout=30,
             ).stdout
             if not path.startswith("package:"):
                 return "autoroot-helper-missing"
@@ -7413,7 +7413,13 @@ class PortalProvisioner:
                 except ProvisionError:
                     pass
                 try:
-                    self.adb_run(["reboot"], timeout=8)
+                    if os.environ.get("PORTAL_NO_REBOOT") == "1":
+                        print(
+                            "PORTAL_NO_REBOOT=1: skipping exploit reboot",
+                            flush=True,
+                        )
+                    else:
+                        self.adb_run(["reboot"], timeout=8)
                 except ProvisionError:
                     pass
             process.terminate()
