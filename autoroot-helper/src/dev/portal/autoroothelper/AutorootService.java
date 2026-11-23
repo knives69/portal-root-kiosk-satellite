@@ -1391,7 +1391,30 @@ public final class AutorootService extends Service {
      * Shizuku serves as uid 0 the bridge has no further job, and an
      * unauthenticated root EXEC listener should not outlive it.
      */
+    /**
+     * Runs the host-editable apply list through the daemon while it is
+     * still alive, i.e. with the root the handoff just proved. The list
+     * lives in /data/local/tmp so it can be changed from the host
+     * without rebuilding this APK. Every entry must be idempotent and
+     * must not touch the camera/presence pipeline.
+     */
+    private void applyBootActions() {
+        final String script = "/data/local/tmp/portal-autoroot/apply.sh";
+        try {
+            String out = daemonRequest("EXEC sh " + script + " 2>/dev/null; echo rc=$?\n", 3);
+            String trimmed = out == null ? "null" : out.trim();
+            Log.i(TAG, "boot actions: " + trimmed);
+            logFile("boot actions " + trimmed);
+        } catch (Exception error) {
+            Log.w(TAG, "boot actions failed", error);
+            logFile("boot actions failed " + error);
+        }
+    }
+
     private void stopDaemon() {
+        // Root work that must happen every boot goes here, before the
+        // EXEC listener is closed.
+        applyBootActions();
         try {
             daemonRequest("STOP\n", 1);
             Log.i(TAG, "root daemon stopped after shizuku handoff");
