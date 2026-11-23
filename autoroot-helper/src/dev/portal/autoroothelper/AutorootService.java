@@ -1409,6 +1409,39 @@ public final class AutorootService extends Service {
 
     /** Sends one request line; returns response lines up to END. */
     private String daemonRequest(String request, int maxLines) throws Exception {
+        try {
+            return daemonRequestDirect(request, maxLines);
+        } catch (Exception direct) {
+            // App-domain -> shell-domain TCP may be denied by SELinux on
+            // Android 9 (untrusted_app connectto shell:tcp_socket). The
+            // helper already owns a working adbd channel, and adbd runs
+            // in the shell domain, so ask it to relay the same request.
+            String relayed = daemonRequestViaAdb(request);
+            if (relayed != null) {
+                logFile("daemon request relayed via adbd");
+                return relayed;
+            }
+            throw direct;
+        }
+    }
+
+    /** Same request, tunnelled through adbd (shell domain). */
+    private String daemonRequestViaAdb(String request) {
+        try {
+            String command = request.trim().replace("\n", " ");
+            String out = shell("printf '" + command
+                    + "\\n' | toybox nc -W 3 127.0.0.1 " + DAEMON_PORT);
+            if (out == null || out.isEmpty()) {
+                return null;
+            }
+            return out;
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private String daemonRequestDirect(String request, int maxLines)
+            throws Exception {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(
                     InetAddress.getByName("127.0.0.1"), DAEMON_PORT), 3000);
