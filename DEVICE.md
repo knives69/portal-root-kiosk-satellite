@@ -40,8 +40,10 @@ Commit 4 is the on-device presence FPS cap: a dedicated child in the boot window
 SELinux even at uid 0; `installd` is the identity the host run already used.
 
 Config snapshots from the verified unit live in [`device/`](device/): `apply.sh` (the boot
-actions script, now versioned), `env-odd.sh` / `env-even.sh` (the two staged attempt
-parities) and `autoroot.conf`.
+actions script, now versioned) — **v5 production**: active bundle of three floors + post-boot
+watchdog + artifact hardening; the sections the `shell` domain cannot perform are kept
+commented as history — plus `env-odd.sh` / `env-even.sh` (the two staged attempt parities) and
+`autoroot.conf`.
 
 ## Deployed artifacts (verified 2026-11-24)
 
@@ -50,7 +52,7 @@ parities) and `autoroot.conf`.
 | `preload-portal.so` | `/data/local/tmp/preload-portal.so` | `7af8c04c13e2ce04…` | 340,760 B |
 | autoroot helper APK | installed package `dev.portal.autoroothelper` | `4ffd566fff21b7ea…` | 37,207 B |
 | root daemon | `/data/local/tmp/portal-root-daemon` (created by the payload) | `fd916ad164752529…` | 14,840 B |
-| `apply.sh` | `/data/local/tmp/portal-autoroot/apply.sh` | `0458e2a4fea6836b…` | 7,260 B |
+| `apply.sh` | `/data/local/tmp/portal-autoroot/apply.sh` | `12274786fee6422c…` | 13,582 B |
 | `run.sh` | `/data/local/tmp/portal-autoroot/run.sh` | `e4a7c8419c3dca4c…` | 2,593 B |
 | `env-odd.sh` | `/data/local/tmp/portal-autoroot/env-odd.sh` | `feb955314796c68b…` | 1,519 B |
 | `env-even.sh` | `/data/local/tmp/portal-autoroot/env-even.sh` | `15568c52c4fcae47…` | 1,519 B |
@@ -63,6 +65,29 @@ cd exploit
 make PORTAL_TARGET=portal-aloha-1041515800015050
 sha256sum build/preload-portal-aloha-1041515800015050.so   # 7af8c04c…
 ```
+
+## Artifact hardening (apply.sh v5)
+
+The boot script now protects its own inputs, so a plain `adb push` (uid 2000) can no longer
+silently overwrite the runner or the payload:
+
+| path | owner / mode |
+|---|---|
+| `/data/local/tmp/portal-autoroot/` | `root:root 1777` (sticky: the helper still writes `state`/`result`/logs) |
+| `apply.sh`, `run.sh`, `env-odd.sh`, `env-even.sh`, `autoroot.conf` | `root:root 0555` |
+| `/data/local/tmp/preload-portal.so` | `root:root 0555` |
+| `/data/local/tmp/portal-release-2026-11-24/` | `root:root 0555` + `MANIFEST.sha256` (0444), self-repair source |
+
+Consequences for updates and rollback on an already-hardened unit:
+
+* `adb push` into those paths fails with `EACCES` **by design**; that is the point.
+* To update artifacts, do it as root through the running daemon
+  (`printf 'EXEC ...' | toybox nc -W 5 127.0.0.1 37373`) and touch
+  `/data/local/tmp/portal-autoroot/.release-refresh` first, so the next `apply.sh` regenerates
+  the manifest instead of restoring the old files.
+* If anything does not match the manifest, `apply.sh` restores it from
+  `/data/local/tmp/portal-release-2026-11-24/` and logs `release_restored=<file>`.
+* On a factory-fresh unit none of this exists yet, so the plain push sequence below works.
 
 ## Boot flow (no host)
 
@@ -113,6 +138,10 @@ $ADB reboot
 
 `portal-root-daemon` is never pushed by hand: the payload creates it inside the privileged
 window (`PORTAL_CUSTOM_PAYLOAD_STARTED … dst=/data/local/tmp/portal-root-daemon`).
+
+> On a unit that has already booted `apply.sh` v5 the runner files and the payload are
+> `root:root 0555`, so the `adb push` lines above fail with `EACCES`. Use the root-daemon path
+> described under *Artifact hardening*, or clear the protections from a privileged context first.
 
 ## Rollback
 
