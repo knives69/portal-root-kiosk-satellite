@@ -155,3 +155,8 @@ $ADB reboot
 
 The cap rows already written stay in `prefs_db` until the native restore action
 (`GHOSTLOCK_RESTORE_PRESENCE_FPS`) runs in a privileged window.
+
+> With `apply.sh` v5 the plain `adb push` rollback above fails (`root:root 0555`): copy the
+> `.frozen*` files back through the root daemon instead, and touch
+> `/data/local/tmp/portal-autoroot/.release-refresh` before the next boot. A future host
+> `--autoroot` restaging hits the same `EACCES` until that flag is set.
