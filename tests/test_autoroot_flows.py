@@ -576,6 +576,37 @@ class AutorootStagingTest(unittest.TestCase):
         self.assertIn("SHIZUKU_HELPER_REMOVED", output)
         self.assertIn("AUTOROOT_STAGED_OK", output)
 
+    def test_staging_freezes_presence_cap_boot_stage(self) -> None:
+        # The on-device runner is rendered once and replayed on every
+        # boot, so the FPS cap stage must be frozen unconditionally
+        # (docs/28): the device resolves installd's pid live, but the
+        # cap value and the stage flag are static.
+        with tempfile.TemporaryDirectory() as temporary:
+            provisioner = self.build_provisioner(temporary)
+            provisioner.presence_fps_cap = 2
+            with mock.patch.object(
+                provisioner,
+                "build_exploit_environment",
+                return_value={
+                    "GHOSTLOCK_CUSTOM_PAYLOAD": "1",
+                    "GHOSTLOCK_LOCK_REPAIR": "1",
+                    "GHOSTLOCK_PRESENCE_FPS_CAP": "2",
+                },
+            ):
+                pushes, _output = self.run_staging(
+                    provisioner, ({SHIZUKU_HELPER_PACKAGE}, set())
+                )
+        for name in ("env-odd.sh", "env-even.sh"):
+            rendered = pushes[f"/data/local/tmp/portal-autoroot/{name}"]
+            self.assertIn("export GHOSTLOCK_PRESENCE_FPS_CAP=2", rendered)
+            self.assertIn("export GHOSTLOCK_PRESENCE_CAP_STAGE=1", rendered)
+            self.assertIn(
+                "export GHOSTLOCK_PRESENCE_NATIVE_PREFS=1", rendered
+            )
+            # The donor identity is per-boot and resolved on device.
+            self.assertNotIn("GHOSTLOCK_ACTION_CREDENTIAL_PID", rendered)
+            self.assertNotIn("GHOSTLOCK_PRESENCE_CREDENTIAL_PID", rendered)
+
     def test_staging_from_channel_context_renders_payload_block(
         self,
     ) -> None:

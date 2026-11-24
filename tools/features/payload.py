@@ -627,6 +627,26 @@ class PayloadFeature:
             )
         return public
 
+    def _stage_presence_cap_boot_env(self, environment: dict[str, str]) -> None:
+        """Freeze the presence FPS cap into the on-device boot runner.
+
+        The runner environment is rendered once at staging time and
+        replayed on every boot, so the cap must not depend on the install
+        preflight that skips already-configured devices: the boot stage is
+        idempotent (INSERT OR REPLACE plus its own backup table) and always
+        writes the cap. Only the donor credential is left to the device,
+        because installd's pid changes every boot.
+        """
+        cap = self._config.presence_fps_cap
+        if cap is None:
+            return
+        target = self._target()
+        if not getattr(target, "uid1000_embedded_helper", False):
+            return
+        environment["GHOSTLOCK_PRESENCE_FPS_CAP"] = str(cap)
+        environment["GHOSTLOCK_PRESENCE_NATIVE_PREFS"] = "1"
+        environment["GHOSTLOCK_PRESENCE_CAP_STAGE"] = "1"
+
     def stage_autoroot_payload(self) -> None:
         """Stage the on-device autoroot runner and its boot helper.
 
@@ -775,6 +795,7 @@ class PayloadFeature:
                 environment = self._build_exploit_environment(0, 0, attempt)
                 environment.pop("GHOSTLOCK_KASLR_BASE", None)
                 environment.pop("GHOSTLOCK_P0_MEMSTART", None)
+                self._stage_presence_cap_boot_env(environment)
                 if "GHOSTLOCK_ACTION_CREDENTIAL_PID" in environment:
                     raise ProvisionError(
                         "autoroot cannot stage this run: its exploit "
