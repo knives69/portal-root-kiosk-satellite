@@ -78,13 +78,21 @@ silently overwrite the runner or the payload:
 | `/data/local/tmp/preload-portal.so` | `root:root 0555` |
 | `/data/local/tmp/portal-release-2026-11-24/` | `root:root 0555` + `MANIFEST.sha256` (0444), self-repair source |
 
-Consequences for updates and rollback on an already-hardened unit:
+`adb push` needs to own the target: adbd (uid 2000) opens with `O_TRUNC`; on `EACCES` it
+`chmod`s the file to `0666` and retries, which only works while the owner is `shell`. Measured
+on the reference unit: a `0444` shell-owned file kept its inode and changed to `0666`.
 
-* `adb push` into those paths fails with `EACCES` **by design**; that is the point.
-* To update artifacts, do it as root through the running daemon
-  (`printf 'EXEC ...' | toybox nc -W 5 127.0.0.1 37373`) and touch
-  `/data/local/tmp/portal-autoroot/.release-refresh` first, so the next `apply.sh` regenerates
-  the manifest instead of restoring the old files.
+Consequences:
+
+* **While the files are owned by `shell`** (e.g. `apply.sh` was run by hand as uid 2000, so its
+  `chown root:root` failed) `adb push` still works.
+* **After a boot, where `apply.sh` runs as uid 0**, `chown` succeeds: files become `root:root
+  0555` and the directory `root:root 1777` sticky. Then uid 2000 can neither write the file
+  (0555, not owner) nor replace it (sticky directory owned by root) → `EACCES`.
+* To update artifacts on a hardened unit, stage the new file under a path shell can write
+  (e.g. `/data/local/tmp/incoming/`) and copy it with the **daemon** (root), then
+  `touch /data/local/tmp/portal-autoroot/.release-refresh` so the next `apply.sh` rebuilds the
+  manifest. Clearing `.release-refresh` alone does **not** bypass permissions.
 * If anything does not match the manifest, `apply.sh` restores it from
   `/data/local/tmp/portal-release-2026-11-24/` and logs `release_restored=<file>`.
 * On a factory-fresh unit none of this exists yet, so the plain push sequence below works.
