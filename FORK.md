@@ -605,5 +605,4 @@ from source. Preview releases run on the 0.9.x version line.
 * **`device/env-*.sh`** — carry `GHOSTLOCK_PRESENCE_CAP_STAGE=1` and
   `GHOSTLOCK_PRESENCE_NATIVE_PREFS=1` so the presence cap is applied by a delegated child with the
   `installd` credential (aiservice 193 % → 78 %).
-* Engineering notes, measurements and refuted paths: https://github.com/knives69/portal-aloha-dossier
 

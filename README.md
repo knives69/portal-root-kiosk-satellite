@@ -13,8 +13,6 @@ Portal+ (`aloha`, Android 9) between 2026-11-17 and 2026-11-27:
 | **Artifact hardening** | `apply.sh` keeps `portal-release-<date>/` + `MANIFEST.sha256`, makes the boot artifacts `root 0555` in a sticky dir and restores anything that does not match |
 | **Presence cap** | `--presence-fps-cap 2` implemented as a delegated child with the `installd` credential (aiservice 193 % → 78 %) |
 
-Full engineering notes, measurements and negative results: <https://github.com/knives69/portal-aloha-dossier>
-
 ## Overview
 
 The provisioner checks that the connected Portal has an exact supported
