@@ -595,3 +595,15 @@ An unsigned (locally built) bundle is accepted on its hashes alone.
 The APKs inside the bundle are still signed with the committed
 project debug key, so they install as updates on devices provisioned
 from source. Preview releases run on the 0.9.x version line.
+
+## 13. Fork additions, Nov 2026: DSP wake-word + boot script
+
+* **`apps/heyportal/`** — hardware wake-word via the Meta audio service (see README).
+* **`device/apply.sh` (v8)** — three perf floors through `vendor.perfservice`, post-boot watchdog for
+  `core_ctl/min_cpus`, 10 log tags silenced, fixed location provider, Hey Portal daemon start, and
+  artifact hardening (root `0555` + sticky dir + manifest/restore).
+* **`device/env-*.sh`** — carry `GHOSTLOCK_PRESENCE_CAP_STAGE=1` and
+  `GHOSTLOCK_PRESENCE_NATIVE_PREFS=1` so the presence cap is applied by a delegated child with the
+  `installd` credential (aiservice 193 % → 78 %).
+* Engineering notes, measurements and refuted paths: https://github.com/knives69/portal-aloha-dossier
+

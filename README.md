@@ -1,19 +1,19 @@
-## Archived
+## What's in this fork (2026-11-27)
 
-This repository is archived and is no longer maintained. Development has moved to a private repository.
+The upstream project is archived; **this fork is maintained** and carries the work done on a
+Portal+ (`aloha`, Android 9) between 2026-11-17 and 2026-11-27:
 
-This tool roots Meta Portal devices through a Linux kernel vulnerability (CVE-2026-43499, "GhostLock"). Meta's current Portal firmware, build 3051392000021050, includes the upstream fix for that vulnerability, and the root method here does not work on that build. The releases in this repository support only the firmware builds listed in the compatibility table below.
+| area | what was added |
+|---|---|
+| **Root per boot** | autoroot fixed (adbd relay for the daemon), iOS-style self-heal when the CFI credential step fails, verified on dozens of boots |
+| **Performance floors** | `device/apply.sh` now locks three *floors* through the vendor perf HAL (`vendor.perfservice`): KSM off, `core_ctl min_cpus=0`, `cpubw min_freq`. Plus a detached post-boot watchdog that reverts `init.qcom.post_boot.sh`'s `min_cpus=2` |
+| **Log noise** | 10 firmware log tags silenced via `persist.log.tag.*=S` (shell-writable, unlike `printk`): `QCamera` went from 2 406 of every 4 000 lines to 0 |
+| **Fixed location** | `setlocation.dex` + `location.conf` inject a `TestProvider` (`fused`/`network`/`gps`); the device has **no GNSS hardware** at all (see the dossier) |
+| **DSP wake-word** | `apps/heyportal/` — hardware wake-word via Meta's `audiomanager` `IAudioServiceManager` (signature permission `PLATFORM_AUDIO` → needs uid 0), fires `VOICE_COMMAND` → Google Assistant. Idle cost 0.0 % of a core. Its own repo: <https://github.com/knives69/portal-heyportal> |
+| **Artifact hardening** | `apply.sh` keeps `portal-release-<date>/` + `MANIFEST.sha256`, makes the boot artifacts `root 0555` in a sticky dir and restores anything that does not match |
+| **Presence cap** | `--presence-fps-cap 2` implemented as a delegated child with the `installd` credential (aiservice 193 % → 78 %) |
 
-> ⚠️ **Under heavy development — not ready for release.** This project is being actively restructured and validated. It may not work on your device yet, behavior can change between commits, and there is no stable release. Use at your own risk.
-
-# Meta Portal Root Provisioner
-
-Provision and root Meta Portal devices with a controlled, exact-build
-root exploit. All changes are persistent and survive reboots.
-
-> **Credits:** This project is a fork of the original Portal provisioner
-> created by [jxlarrea](https://github.com/jxlarrea) — the original
-> project and its exploit work are his.
+Full engineering notes, measurements and negative results: <https://github.com/knives69/portal-aloha-dossier>
 
 ## Overview
 

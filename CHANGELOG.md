@@ -9,6 +9,23 @@ must match it.
 
 ## [Unreleased]
 
+### Added
+- `apps/heyportal/`: hardware (DSP) wake-word daemon for Meta Portal. Enrolls `HEY_PORTAL_FB` /
+  `HEY_FACEBOOK` / `ALEXA` through Meta's `com.facebook.IAudioServiceManager` (signature permission
+  `PLATFORM_AUDIO`, so the daemon must run as uid 0), exposes a loopback control protocol on
+  `127.0.0.1:45454` and fires `android.intent.action.VOICE_COMMAND` (Google Assistant) on detection.
+  Measured idle cost: 0.0 % of one core. Standalone repo: https://github.com/knives69/portal-heyportal
+- `device/apply.sh`: fixed-location `TestProvider` (`setlocation.dex` + `location.conf`), 10 firmware
+  log tags silenced via `persist.log.tag.*=S`, and the Hey Portal daemon start block (kills the
+  previous instance, checks the listener in `/proc/net/tcp6`).
+- `device/apply.sh`: detached post-boot watchdog that reverts `init.qcom.post_boot.sh` writing
+  `core_ctl/min_cpus=2`, plus artifact hardening (`portal-release-*/` + `MANIFEST.sha256`).
+
+### Changed
+- `device/apply.sh` v8: only the blocks with verified effect are active; the rest (printk,
+  lowmemorykiller, swappiness, `cnss_diag`, thermal renice, `skip_validate`, kallsyms/pstore) are
+  kept **commented** with the evidence that SELinux in the `shell` domain cannot reach them.
+
 - Per-boot build gate for autoroot: staging now records the build
   fingerprint it staged for in `autoroot.conf`, and on every boot
   the helper compares it against the running build before any

@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# portal-autoroot/apply.sh — v5 PRODUCCIÓN (2026-11-24)
+# portal-autoroot/apply.sh — v8 PRODUCCIÓN (2026-11-27)
 #
 # Lo ejecuta el helper a través del daemon, como uid 0 en dominio `shell`, en cada
 # arranque, justo antes de cerrar el daemon. Nunca debe bloquear el arranque: siempre exit 0.
@@ -7,6 +7,7 @@
 # ── ACTIVO (verificado con efecto medido) ──────────────────────────────────────────
 #   * bundle de 3 suelos al HAL `vendor.perfservice` (Binder): KSM off, core_ctl min 0,
 #     cpubw min_freq.  Evidencia: apply.log `perf_bundle=… handle=0xNN` + `core_ctl.min_cpus=0`.
+#   * inyección de ubicación fija (Leganés) en TestProviders (fused, network, gps).
 #   * 10 tags de log silenciados por liblog (`persist.log.tag.*=S`).  Evidencia: 29→0 líneas/6 s.
 #   * watchdog post-boot desacoplado: revierte el revert de `init.qcom.post_boot.sh`.
 #   * blindaje de artefactos (permisos root + manifiesto + autorreparación).
@@ -43,7 +44,7 @@ RELEASE=$TMP/portal-release-2026-11-24
 log() { echo "$*" >> "$LOG" 2>/dev/null; }
 state_of() { [ -r "/proc/$1/stat" ] && awk '{print $3}' "/proc/$1/stat" 2>/dev/null; }
 
-log "apply.sh v5 $(date)"
+log "apply.sh v8 $(date)"
 log "boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
 log "uid=$(id -u 2>/dev/null) sid=$(cat /proc/self/attr/current 2>/dev/null)"
 
@@ -121,12 +122,57 @@ for T in $TAGS; do
 done
 log "log_tags=$(for T in $TAGS; do printf '%s ' "$(getprop "persist.log.tag.$T" 2>/dev/null)"; done)"
 
-# ── 3) BLINDAJE: que nada pise el estado bueno por accidente ─────────────────────
+# ── 3) INYECCIÓN DE UBICACIÓN FIJA (Leganés) ──────────────────────────────────
+#    Inyecta coordenadas fijas via TestProvider (fused, network, gps) para apps
+#    y widgets sin depender de sesión Meta ni GNSS inexistente.
+if [ -f "$DIR/setlocation.dex" ] && [ -f "$DIR/location.conf" ]; then
+    LOC=$(cat "$DIR/location.conf" 2>/dev/null)
+    if [ -n "$LOC" ]; then
+        appops set com.android.shell android:mock_location allow 2>/dev/null
+        settings put secure location_providers_allowed +gps 2>/dev/null
+        CLASSPATH="$DIR/setlocation.dex" app_process /system/bin dev.portal.mockloc.SetLocation $LOC >/dev/null 2>&1
+        log "mock_location=applied coords=$LOC"
+    fi
+fi
+
+# ── 3b) DEMONIO HEY PORTAL (dev.portal.heyportal) ────────────────────────────────
+#    El demonio llama a com.facebook.IAudioServiceManager, cuyo enrolamiento exige el
+#    permiso signature `com.facebook.alohasdk.permission.PLATFORM_AUDIO`: una app
+#    sideloaded nunca lo recibe, uid 0 sí. Se lanza aquí con root y desacoplado (setsid).
+#    OJO: el socket escucha en IPv6-mapeado (::ffff:127.0.0.1) → aparece en
+#    /proc/net/tcp6, NO en /proc/net/tcp. Y hay que MATAR el demonio anterior: si se
+#    deja, se queda con la versión vieja del APK y el guard impediría arrancar el nuevo.
+#    Desactivar: borrar este bloque.
+HP_PKG=dev.portal.heyportal
+if pm path "$HP_PKG" >/dev/null 2>&1; then
+    for P in /proc/[0-9]*; do
+        case "$(tr '\0' ' ' < "$P/cmdline" 2>/dev/null)" in
+            *dev.portal.heyportal.daemon.RootDaemon*) kill "$(basename "$P")" 2>/dev/null ;;
+        esac
+    done
+    sleep 1
+    HP_APK=$(pm path "$HP_PKG" 2>/dev/null | sed 's/package://' | tr -d '\r' | head -1)
+    if [ -n "$HP_APK" ] && [ -f "$HP_APK" ]; then
+        setsid env CLASSPATH="$HP_APK" app_process /system/bin \
+            dev.portal.heyportal.daemon.RootDaemon </dev/null >/dev/null 2>&1 &
+        sleep 5
+        HP_TCP=$(grep -c ':B18E' /proc/net/tcp 2>/dev/null)
+        HP_TCP6=$(grep -c ':B18E' /proc/net/tcp6 2>/dev/null)
+        log "heyportal_daemon=tcp_${HP_TCP}_tcp6_${HP_TCP6} pid_$(pidof app_process 2>/dev/null | tr ' ' ',')"
+    else
+        log "heyportal_daemon=no_apk"
+    fi
+else
+    log "heyportal_daemon=not_installed"
+fi
+
+# ── 4) BLINDAJE: que nada pise el estado bueno por accidente ─────────────────────
 #    Un `adb push` (uid 2000) FALLA con EACCES en vez de sobrescribir en silencio.
 #    Actualizaciones legítimas: desde este mismo script (root) o desde el payload/daemon.
 if [ -d "$DIR" ]; then
     mkdir -p "$RELEASE" 2>/dev/null
-    for f in run.sh env-odd.sh env-even.sh autoroot.conf apply.sh; do
+    chmod 0755 "$RELEASE" 2>/dev/null
+    for f in run.sh env-odd.sh env-even.sh autoroot.conf apply.sh setlocation.dex location.conf; do
         [ -f "$DIR/$f" ] || continue
         [ -f "$RELEASE/$f" ] || cp -f "$DIR/$f" "$RELEASE/$f" 2>/dev/null
         chown root:root "$DIR/$f" "$RELEASE/$f" 2>/dev/null
@@ -148,7 +194,7 @@ if [ -d "$DIR" ]; then
     # manifiesto: se crea una vez y no se pisa (es la referencia)
     if [ ! -f "$RELEASE/MANIFEST.sha256" ]; then
         ( cd "$RELEASE" && sha256sum preload-portal.so run.sh env-odd.sh env-even.sh \
-            autoroot.conf apply.sh 2>/dev/null > MANIFEST.sha256 )
+            autoroot.conf apply.sh setlocation.dex location.conf 2>/dev/null > MANIFEST.sha256 )
         chown root:root "$RELEASE/MANIFEST.sha256" 2>/dev/null
         chmod 0444 "$RELEASE/MANIFEST.sha256" 2>/dev/null
     fi
