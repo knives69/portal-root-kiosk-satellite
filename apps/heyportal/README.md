@@ -84,6 +84,7 @@ with more than one entry with `Can't enroll more than 1 wakewords`. The daemon a
 | `DaemonClient.java` | TCP client for the loopback control protocol |
 | `daemon/RootDaemon.java` | the privileged (uid 0) daemon: binds the audio service, enrolls, serves TCP 45454, launches Assistant |
 | `binder/AudioServiceHelper.java` | reflective binder to `com.facebook.IAudioServiceManager` (AIDL `com.facebook.alohasdk.IAudioService…`), single-keyword overload, static stubs so GC cannot trigger `binderDied` |
+| `FgTracker.java` | accessibility service: watches the Assistant overlay, restarts a **15 s idle countdown**, postpones while the Assistant is speaking (TTS via `AudioPlaybackConfiguration`), resets on touch, and sends `GLOBAL_ACTION_BACK` only while the Assistant is still foreground (**v1.3.0**) |
 | `WakeReceiver.java` | receives `dev.portal.heyportal.ACTION_WAKE_DETECTED` from the daemon: plays the earcon chime and wakes the display |
 | `TokenReceiver.java` | receives the ephemeral auth token over Binder (protected by the signature permission `dev.portal.heyportal.permission.DAEMON_AUTH`) |
 | `BootReceiver.java` | receives `BOOT_COMPLETED` / `MY_PACKAGE_REPLACED` (start the daemon externally; see §6) |
@@ -182,6 +183,7 @@ with `{"ok":false,"error":"unauthorized"}` and the socket is closed.
 | `REQUEST_TOKEN` | asks the Binder channel to re-send the token |
 | `LOGS` | returns the live event log (used by the UI) |
 | `SET_CHIME:true|false` | toggles the earcon chime + wake display (v1.2.0) |
+| `SET_AUTO_DISMISS:true|false` | toggles the 15 s Assistant auto-dismiss (v1.3.0, handled by `FgTracker`) |
 | `PING` | `PONG` |
 | `STATUS` | `{"ok":true,"pid":…,"uid":…,"enrolled":…,"enrollId":…,"keyword":…,"detections":…,…}` |
 | `RE_ENROLL` | re-enrolls the current keyword |
@@ -189,6 +191,22 @@ with `{"ok":false,"error":"unauthorized"}` and the socket is closed.
 | `STOP` | stops DSP recognition |
 | `TRIGGER` | launches Assistant once (used by “TEST ASSISTANT INTENT”) |
 | `SET_AUTO_LAUNCH:true|false` | toggles the automatic `VOICE_COMMAND` on detection |
+
+## 7.1 Assistant auto-dismiss (v1.3.0)
+
+Ported from [portal-okgoogle](https://github.com/knives69/portal-okgoogle). The accessibility service
+`FgTracker`:
+
+1. detects the Assistant overlay (`com.google.android.googlequicksearchbox`);
+2. arms a **15 s idle countdown**;
+3. while the Assistant is speaking (monitored through `AudioPlaybackConfiguration`) it postpones in
+   5 s steps, then grants the full 15 s again;
+4. any touch (`TYPE_VIEW_CLICKED`) restarts the countdown;
+5. sends `GLOBAL_ACTION_BACK` **only if the Assistant is still foreground**, so it never closes
+   YouTube, the launcher or another app.
+
+`WRITE_SECURE_SETTINGS` + `FgTracker.ensureAccessibilityEnabled()` keep the service registered.
+Toggle it in the UI (*“Auto-dismiss Google Assistant after 15s idle”*).
 
 ## 8. Security notes (read this)
 
@@ -239,10 +257,12 @@ adb logcat -s HeyPortal_Binder HeyPortal_Daemon WakeWordManager
 | root | obtained by the CVE-2026-43499 autoroot chain; daemon started from the boot script as uid 0 |
 | enrollment | `ENROLLED kw=HEY_PORTAL_FB enrollId=1` (27-11-2026 22:37) |
 | idle cost | 0.0 % of one core (daemon), vs ~16.5 % for a CPU-based wake-word service |
-| versions | v1.1.0 = token auth · **v1.2.0** = chime + wake display, `WakeReceiver`, `linkToDeath`, 60 s watchdog, log rotation, persistent config |
+| versions | v1.1.0 = token auth · v1.2.0 = chime + wake display, `WakeReceiver`, `linkToDeath`, 60 s watchdog, log rotation · **v1.3.0** = 15 s Assistant auto-dismiss (`FgTracker` accessibility service, TTS-aware, touch-reset, safe `BACK`) |
 | dashboard | `● ACTIVE · LISTENING (HEY_PORTAL_FB)`, daemon `UID 0 (PID …) · Auth OK` |
 | detections | 12 real detections of `HEY_PORTAL_FB`, confidence 0.995–1.000 |
-| build output | `heyportal.apk` = `9bdcf9d86c422fe7`, 185.652 B (`versionCode=3`, v1.2.0) |
+| build output | `heyportal.apk` = `64532df2c3ce1571`, 189.810 B (`versionCode=4`, v1.3.0) |
+| auto-dismiss | armed 08:47:31.452 → fired 08:47:46.481 (**15,03 s**), `stillAssistant=true`, `BACK` only if the Assistant is foreground |
+| detections | 18 accumulated, confidence 0.974–1.000 |
 
 ## 12. License
 

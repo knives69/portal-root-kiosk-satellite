@@ -11,7 +11,7 @@ import android.util.Log;
 /**
  * Signature-protected receiver for wake-word events pushed by RootDaemon (uid 0).
  * Plays the Nest-style rising chime earcon, briefly wakes the screen from Dream,
- * and notifies MainActivity if in foreground.
+ * triggers FgTracker auto-dismiss timer, and notifies MainActivity if in foreground.
  */
 public class WakeReceiver extends BroadcastReceiver {
     private static final String TAG = "HeyPortal_Wake";
@@ -37,6 +37,10 @@ public class WakeReceiver extends BroadcastReceiver {
         if (playChime) {
             playChime(context);
         }
+
+        // Arm Assistant auto-dismissal tracking for this session
+        FgTracker.onNewVoiceInvocation();
+        FgTracker.scheduleAutoDismiss();
 
         // Notify in-process MainActivity UI immediately without exposing wake receiver publicly.
         Intent ui = new Intent(ACTION_LOCAL_UI_REFRESH);

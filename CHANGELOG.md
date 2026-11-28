@@ -21,6 +21,11 @@ must match it.
   not usable on Android 9 (SELinux blocks `unix_stream_socket connectto` untrusted_app↔shell).
   Adds `WakeReceiver` (earcon chime + wake display), `linkToDeath`, 60 s watchdog, log rotation,
   persistent config and `SET_CHIME`.
+- `apps/heyportal/` v1.3.0: **15 s Assistant auto-dismiss** ported from `portal-okgoogle` — new
+  accessibility service `FgTracker` detects the Assistant overlay, arms a 15 s idle countdown,
+  postpones while the Assistant speaks (`AudioPlaybackConfiguration`), restarts on any touch, and
+  sends `GLOBAL_ACTION_BACK` only while the Assistant is still foreground. Verified in logcat:
+  armed 08:47:31.452 → fired 08:47:46.481 (15,03 s).
 - `device/apply.sh`: fixed-location `TestProvider` (`setlocation.dex` + `location.conf`), 10 firmware
   log tags silenced via `persist.log.tag.*=S`, and the Hey Portal daemon start block (kills the
   previous instance, checks the listener in `/proc/net/tcp6`).

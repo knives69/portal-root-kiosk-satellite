@@ -44,9 +44,11 @@ public class MainActivity extends Activity {
     private TextView statEnrollValue;
     private TextView statCountValue;
     private TextView statLastWakeValue;
+    private TextView statA11yValue;
     private TextView logTextView;
     private Switch autoLaunchSwitch;
     private Switch chimeSwitch;
+    private Switch autoDismissSwitch;
     private Button btnCycleKeyword;
 
     private boolean isPolling = false;
@@ -64,12 +66,14 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         WakeReceiver.preloadChime(this);
+        FgTracker.ensureAccessibilityEnabled(this);
         buildUI();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        FgTracker.ensureAccessibilityEnabled(this);
         registerReceiver(wakeUiReceiver, new IntentFilter(WakeReceiver.ACTION_LOCAL_UI_REFRESH));
         startPolling();
         refreshData();
@@ -153,6 +157,12 @@ public class MainActivity extends Activity {
             if (chimeSwitch != null && chimeSwitch.isChecked() != s.chimeEnabled) {
                 chimeSwitch.setChecked(s.chimeEnabled);
             }
+            if (autoDismissSwitch != null) {
+                boolean adDef = getSharedPreferences(FgTracker.PREFS_NAME, MODE_PRIVATE).getBoolean(FgTracker.PREF_AUTO_DISMISS, true);
+                if (autoDismissSwitch.isChecked() != adDef) {
+                    autoDismissSwitch.setChecked(adDef);
+                }
+            }
             updatingSwitches = false;
         } else if (s.daemonOnline) {
             statusBadge.setText("▲  AUTH HANDSHAKE PENDING");
@@ -174,6 +184,12 @@ public class MainActivity extends Activity {
             statEnrollValue.setTextColor(Color.parseColor("#9AA0A6"));
             statCountValue.setText("-");
             statLastWakeValue.setText("Waiting for privileged daemon to start");
+        }
+
+        if (statA11yValue != null) {
+            boolean active = FgTracker.isConnected();
+            statA11yValue.setText(active ? "Connected · Active" : "Configured · Awaiting event");
+            statA11yValue.setTextColor(active ? Color.parseColor("#81C995") : Color.parseColor("#9AA0A6"));
         }
 
         if (logTextView != null) {
@@ -219,14 +235,14 @@ public class MainActivity extends Activity {
 
         // 1. Header
         TextView title = new TextView(this);
-        title.setText("Hey Portal — AudioService Wake v1.2");
+        title.setText("Hey Portal — AudioService Wake v1.3");
         title.setTextColor(Color.WHITE);
         title.setTextSize(22);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Meta Portal native wake-word (audiomanager) -> Chime + Google Assistant");
+        subtitle.setText("Meta Portal native wake-word (audiomanager) -> Chime + Assistant + Auto-dismiss");
         subtitle.setTextColor(Color.parseColor("#9AA0A6"));
         subtitle.setTextSize(13);
         subtitle.setPadding(0, dp(4), 0, dp(20));
@@ -253,6 +269,7 @@ public class MainActivity extends Activity {
         statEnrollValue = makeRow(cardTel, "Wake Enrollment:", "Checking...");
         statCountValue = makeRow(cardTel, "Detection Count:", "0");
         statLastWakeValue = makeRow(cardTel, "Last Wake Trigger:", "None");
+        statA11yValue = makeRow(cardTel, "Overlay Auto-Dismiss:", "Initializing...");
         root.addView(cardTel);
 
         addSpace(root, 16);
@@ -278,12 +295,26 @@ public class MainActivity extends Activity {
         chimeSwitch.setTextColor(Color.WHITE);
         chimeSwitch.setTextSize(14);
         chimeSwitch.setChecked(true);
-        chimeSwitch.setPadding(0, dp(4), 0, dp(14));
+        chimeSwitch.setPadding(0, dp(4), 0, dp(8));
         chimeSwitch.setOnCheckedChangeListener((btn, isChecked) -> {
             if (updatingSwitches) return;
             new Thread(() -> DaemonClient.sendCommand(this, "SET_CHIME:" + isChecked)).start();
         });
         cardAction.addView(chimeSwitch);
+
+        autoDismissSwitch = new Switch(this);
+        autoDismissSwitch.setText("Auto-dismiss Google Assistant after 15s idle");
+        autoDismissSwitch.setTextColor(Color.WHITE);
+        autoDismissSwitch.setTextSize(14);
+        boolean adDef = getSharedPreferences(FgTracker.PREFS_NAME, MODE_PRIVATE).getBoolean(FgTracker.PREF_AUTO_DISMISS, true);
+        autoDismissSwitch.setChecked(adDef);
+        autoDismissSwitch.setPadding(0, dp(4), 0, dp(14));
+        autoDismissSwitch.setOnCheckedChangeListener((btn, isChecked) -> {
+            if (updatingSwitches) return;
+            getSharedPreferences(FgTracker.PREFS_NAME, MODE_PRIVATE).edit().putBoolean(FgTracker.PREF_AUTO_DISMISS, isChecked).apply();
+            FgTracker.setEnabled(isChecked);
+        });
+        cardAction.addView(autoDismissSwitch);
 
         LinearLayout btnRow1 = new LinearLayout(this);
         btnRow1.setOrientation(LinearLayout.HORIZONTAL);
@@ -294,10 +325,12 @@ public class MainActivity extends Activity {
                 if (chimeSwitch != null && chimeSwitch.isChecked()) {
                     WakeReceiver.playChime(this);
                 }
+                FgTracker.onNewVoiceInvocation();
+                FgTracker.scheduleAutoDismiss();
                 Intent intent = new Intent(Intent.ACTION_VOICE_COMMAND);
                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(intent);
-                Toast.makeText(this, "Dispatched ACTION_VOICE_COMMAND", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Dispatched ACTION_VOICE_COMMAND (auto-dismiss in 15s)", Toast.LENGTH_SHORT).show();
             } catch (Throwable t) {
                 Toast.makeText(this, "Failed: " + t.getMessage(), Toast.LENGTH_LONG).show();
             }
@@ -353,26 +386,26 @@ public class MainActivity extends Activity {
                 DaemonClient.sendCommand(this, "STOP");
                 handler.post(this::refreshData);
             }).start();
-            Toast.makeText(this, "Stopped wake-word recognition", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Sent STOP command", Toast.LENGTH_SHORT).show();
         });
-        btnRow2.addView(btnStop, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.6f));
+        btnRow2.addView(btnStop, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.8f));
 
         cardAction.addView(btnRow2);
         root.addView(cardAction);
 
         addSpace(root, 16);
 
-        // 5. Live Events Log Card
+        // 5. Live Event Log Card
         LinearLayout cardLog = makeCard();
         cardLog.addView(makeSectionTitle("3. LIVE EVENT LOG (Authenticated IPC)"));
 
         logTextView = new TextView(this);
-        logTextView.setText("No log events yet.");
-        logTextView.setTextColor(Color.parseColor("#8AB4F8"));
-        logTextView.setTextSize(12);
+        logTextView.setText("Loading live events...");
+        logTextView.setTextColor(Color.parseColor("#AECBFA"));
+        logTextView.setTextSize(11);
         logTextView.setTypeface(Typeface.MONOSPACE);
         logTextView.setPadding(dp(12), dp(12), dp(12), dp(12));
-        logTextView.setBackground(makePill(Color.parseColor("#12141C"), Color.parseColor("#222632"), 8));
+        logTextView.setBackground(makePill(Color.parseColor("#0A0C10"), Color.parseColor("#1F232B"), 8));
         cardLog.addView(logTextView);
 
         root.addView(cardLog);
@@ -382,85 +415,86 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout makeCard() {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        l.setPadding(dp(20), dp(18), dp(20), dp(20));
-        l.setBackground(makeRoundedCard(Color.parseColor("#1A1D26"), Color.parseColor("#2A2E3B"), 14, 1));
-        return l;
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(18), dp(18), dp(18), dp(18));
+        card.setBackground(makePill(Color.parseColor("#151821"), Color.parseColor("#222736"), 16));
+        return card;
     }
 
-    private TextView makeSectionTitle(String text) {
+    private TextView makeSectionTitle(String title) {
         TextView tv = new TextView(this);
-        tv.setText(text);
+        tv.setText(title);
         tv.setTextColor(Color.parseColor("#8AB4F8"));
         tv.setTextSize(12);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setPadding(0, 0, 0, dp(12));
+        tv.setPadding(0, 0, 0, dp(14));
         return tv;
     }
 
     private TextView makeRow(LinearLayout parent, String label, String initialValue) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(0, dp(4), 0, dp(4));
+        row.setPadding(0, dp(3), 0, dp(3));
 
-        TextView tvLabel = new TextView(this);
-        tvLabel.setText(label);
-        tvLabel.setTextColor(Color.parseColor("#9AA0A6"));
-        tvLabel.setTextSize(13);
-        row.addView(tvLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.45f));
+        TextView lbl = new TextView(this);
+        lbl.setText(label);
+        lbl.setTextColor(Color.parseColor("#9AA0A6"));
+        lbl.setTextSize(13);
+        lbl.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.1f));
+        row.addView(lbl);
 
-        TextView tvVal = new TextView(this);
-        tvVal.setText(initialValue);
-        tvVal.setTextColor(Color.WHITE);
-        tvVal.setTextSize(13);
-        tvVal.setTypeface(Typeface.DEFAULT_BOLD);
-        row.addView(tvVal, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.55f));
+        TextView val = new TextView(this);
+        val.setText(initialValue);
+        val.setTextColor(Color.WHITE);
+        val.setTextSize(13);
+        val.setTypeface(Typeface.DEFAULT_BOLD);
+        val.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.9f));
+        row.addView(val);
 
         parent.addView(row);
-        return tvVal;
+        return val;
     }
 
-    private Button makeButton(String text, int color) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(12);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setBackground(makePill(color, 0, 10));
-        b.setPadding(dp(12), dp(12), dp(12), dp(12));
-        return b;
+    private Button makeButton(String text, int bgColor) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(12);
+        btn.setTypeface(Typeface.DEFAULT_BOLD);
+        btn.setPadding(dp(12), dp(12), dp(12), dp(12));
+        btn.setBackground(makePill(bgColor, darken(bgColor), 10));
+        return btn;
     }
 
-    private void addSpace(LinearLayout parent, int dpHeight) {
+    private GradientDrawable makePill(int fillColor, int strokeColor, int radiusDp) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(fillColor);
+        gd.setCornerRadius(dp(radiusDp));
+        gd.setStroke(dp(1), strokeColor);
+        return gd;
+    }
+
+    private int darken(int color) {
+        float[] hsv = new float[3];
+        Color.colorToHSV(color, hsv);
+        hsv[2] *= 0.8f;
+        return Color.HSVToColor(hsv);
+    }
+
+    private void addSpace(LinearLayout parent, int dpVal) {
         View v = new View(this);
-        parent.addView(v, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(dpHeight)));
+        v.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(dpVal)));
+        parent.addView(v);
     }
 
-    private void addHSpace(LinearLayout parent, int dpWidth) {
+    private void addHSpace(LinearLayout parent, int dpVal) {
         View v = new View(this);
-        parent.addView(v, new LinearLayout.LayoutParams(dp(dpWidth), ViewGroup.LayoutParams.MATCH_PARENT));
+        v.setLayoutParams(new LinearLayout.LayoutParams(dp(dpVal), ViewGroup.LayoutParams.MATCH_PARENT));
+        parent.addView(v);
     }
 
-    private GradientDrawable makeRoundedCard(int bgColor, int borderColor, float radiusDp, int strokeDp) {
-        GradientDrawable d = new GradientDrawable();
-        d.setShape(GradientDrawable.RECTANGLE);
-        d.setColor(bgColor);
-        d.setCornerRadius(dp(radiusDp));
-        if (strokeDp > 0) d.setStroke(dp(strokeDp), borderColor);
-        return d;
-    }
-
-    private GradientDrawable makePill(int bgColor, int borderColor, float radiusDp) {
-        GradientDrawable d = new GradientDrawable();
-        d.setShape(GradientDrawable.RECTANGLE);
-        d.setColor(bgColor);
-        d.setCornerRadius(dp(radiusDp));
-        if (borderColor != 0) d.setStroke(dp(1.2f), borderColor);
-        return d;
-    }
-
-    private int dp(float val) {
-        return (int) (val * getResources().getDisplayMetrics().density + 0.5f);
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
 }
