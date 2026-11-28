@@ -9,7 +9,7 @@ Portal+ (`aloha`, Android 9) between 2026-11-17 and 2026-11-27:
 | **Performance floors** | `device/apply.sh` now locks three *floors* through the vendor perf HAL (`vendor.perfservice`): KSM off, `core_ctl min_cpus=0`, `cpubw min_freq`. Plus a detached post-boot watchdog that reverts `init.qcom.post_boot.sh`'s `min_cpus=2` |
 | **Log noise** | 10 firmware log tags silenced via `persist.log.tag.*=S` (shell-writable, unlike `printk`): `QCamera` went from 2 406 of every 4 000 lines to 0 |
 | **Fixed location** | `setlocation.dex` + `location.conf` inject a `TestProvider` (`fused`/`network`/`gps`); the device has **no GNSS hardware** at all (see the dossier) |
-| **DSP wake-word** | `apps/heyportal/` — hardware wake-word via Meta's `audiomanager` `IAudioServiceManager` (signature permission `PLATFORM_AUDIO` → needs uid 0), fires `VOICE_COMMAND` → Google Assistant. Idle cost 0.0 % of a core. Its own repo: <https://github.com/knives69/portal-heyportal> |
+| **DSP wake-word** | `apps/heyportal/` — hardware wake-word via Meta's `audiomanager` `IAudioServiceManager` (signature permission `PLATFORM_AUDIO` → needs uid 0), fires `VOICE_COMMAND` → Google Assistant, plus earcon chime + wake display. The root daemon now requires an **ephemeral 256-bit token** delivered over Binder (banner `AUTH_REQUIRED`, 3 s timeout). Idle cost 0.0 % of a core. Its own repo: <https://github.com/knives69/portal-heyportal> |
 | **Artifact hardening** | `apply.sh` keeps `portal-release-<date>/` + `MANIFEST.sha256`, makes the boot artifacts `root 0555` in a sticky dir and restores anything that does not match |
 | **Presence cap** | `--presence-fps-cap 2` implemented as a delegated child with the `installd` credential (aiservice 193 % → 78 %) |
 

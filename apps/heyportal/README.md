@@ -84,6 +84,8 @@ with more than one entry with `Can't enroll more than 1 wakewords`. The daemon a
 | `DaemonClient.java` | TCP client for the loopback control protocol |
 | `daemon/RootDaemon.java` | the privileged (uid 0) daemon: binds the audio service, enrolls, serves TCP 45454, launches Assistant |
 | `binder/AudioServiceHelper.java` | reflective binder to `com.facebook.IAudioServiceManager` (AIDL `com.facebook.alohasdk.IAudioService…`), single-keyword overload, static stubs so GC cannot trigger `binderDied` |
+| `WakeReceiver.java` | receives `dev.portal.heyportal.ACTION_WAKE_DETECTED` from the daemon: plays the earcon chime and wakes the display |
+| `TokenReceiver.java` | receives the ephemeral auth token over Binder (protected by the signature permission `dev.portal.heyportal.permission.DAEMON_AUTH`) |
 | `BootReceiver.java` | receives `BOOT_COMPLETED` / `MY_PACKAGE_REPLACED` (start the daemon externally; see §6) |
 
 The app requests **no** `RECORD_AUDIO`: the audio never reaches the app, only the DSP callback.
@@ -148,12 +150,38 @@ Two gotchas that cost us hours:
 2. **`/proc/net/tcp6`** — the listener is `::ffff:127.0.0.1:45454`; checking only `/proc/net/tcp`
    reports “not listening” even when it is.
 
-## 7. Control protocol (loopback only)
+## 7. Control protocol (loopback only, authenticated)
 
 TCP `127.0.0.1:45454` (`0xB18E`), one line per request, JSON answers.
 
+**Since v1.1.0 every connection must authenticate.** On connect the daemon immediately sends:
+
+```
+HEYPORTAL_DAEMON v2 AUTH_REQUIRED
+```
+
+and starts a **3 s timeout**. Any command before `AUTH <token>` (except `REQUEST_TOKEN`) is answered
+with `{"ok":false,"error":"unauthorized"}` and the socket is closed.
+
+* The token is **256 bits from `SecureRandom`**, kept **only in RAM** (never in `/sdcard`,
+  `/data/local/tmp` or argv — `/proc` has `hidepid=2`).
+* It is delivered **out of band** through `IActivityManager.broadcastIntent` to the explicit
+  component `TokenReceiver`, protected by the **signature** permission
+  `dev.portal.heyportal.permission.DAEMON_AUTH`.
+* Comparison is constant-time (`MessageDigest.isEqual`); thread pool capped at 8.
+
+`SO_PEERCRED` over a UNIX socket would be the elegant option, but Android 9 SELinux blocks
+`unix_stream_socket connectto` between `untrusted_app` and `shell` (the daemon runs in
+`u:r:shell:s0`), so a token was used instead.
+
+| command | response |
+
 | command | response |
 |---|---|
+| `AUTH <token>` | `{"ok":true}` — required first |
+| `REQUEST_TOKEN` | asks the Binder channel to re-send the token |
+| `LOGS` | returns the live event log (used by the UI) |
+| `SET_CHIME:true|false` | toggles the earcon chime + wake display (v1.2.0) |
 | `PING` | `PONG` |
 | `STATUS` | `{"ok":true,"pid":…,"uid":…,"enrolled":…,"enrollId":…,"keyword":…,"detections":…,…}` |
 | `RE_ENROLL` | re-enrolls the current keyword |
@@ -166,9 +194,12 @@ TCP `127.0.0.1:45454` (`0xB18E`), one line per request, JSON answers.
 
 * The daemon runs **as root** and lives for the whole boot.
 * It binds **loopback only** (`127.0.0.1`), so it is not reachable from the LAN.
-* **There is no authentication on the TCP protocol**: any local process that can connect can send
-  `SET_KEYWORD`, `TRIGGER`, `STOP`. On a device where every app is trusted this is acceptable;
-  otherwise add a shared secret or an unix socket with `SO_PEERCRED` uid verification.
+* The TCP protocol **is authenticated** since v1.1.0 (banner + ephemeral 256-bit token delivered over
+  Binder), so a local process cannot drive the root daemon without the token.
+* Still: the token is handed to whichever process the system delivers the Binder broadcast to, and
+  the socket stays loopback-only — treat it as a privileged service.
+* `SET_CHIME` / `ACTION_WAKE_DETECTED` let the daemon play an earcon and wake the display
+  (`WAKE_LOCK` is held only for that moment).
 * The app never captures audio; it only receives DSP detections.
 * Removing the app or deleting the boot block removes the daemon; `kill <pid>` stops it until the
   next boot.
@@ -208,7 +239,10 @@ adb logcat -s HeyPortal_Binder HeyPortal_Daemon WakeWordManager
 | root | obtained by the CVE-2026-43499 autoroot chain; daemon started from the boot script as uid 0 |
 | enrollment | `ENROLLED kw=HEY_PORTAL_FB enrollId=1` (27-11-2026 22:37) |
 | idle cost | 0.0 % of one core (daemon), vs ~16.5 % for a CPU-based wake-word service |
-| dashboard | `● ACTIVE · LISTENING (HEY_PORTAL_FB)`, daemon `UID 0 · Online` |
+| versions | v1.1.0 = token auth · **v1.2.0** = chime + wake display, `WakeReceiver`, `linkToDeath`, 60 s watchdog, log rotation, persistent config |
+| dashboard | `● ACTIVE · LISTENING (HEY_PORTAL_FB)`, daemon `UID 0 (PID …) · Auth OK` |
+| detections | 12 real detections of `HEY_PORTAL_FB`, confidence 0.995–1.000 |
+| build output | `heyportal.apk` = `9bdcf9d86c422fe7`, 185.652 B (`versionCode=3`, v1.2.0) |
 
 ## 12. License
 

@@ -15,6 +15,12 @@ must match it.
   `PLATFORM_AUDIO`, so the daemon must run as uid 0), exposes a loopback control protocol on
   `127.0.0.1:45454` and fires `android.intent.action.VOICE_COMMAND` (Google Assistant) on detection.
   Measured idle cost: 0.0 % of one core. Standalone repo: https://github.com/knives69/portal-heyportal
+- `apps/heyportal/` v1.2.0: the root daemon is no longer open to any local process — banner
+  `HEYPORTAL_DAEMON v2 AUTH_REQUIRED` + 3 s timeout + ephemeral 256-bit token handed out over
+  Binder through a signature-protected `TokenReceiver`; constant-time comparison. `SO_PEERCRED` is
+  not usable on Android 9 (SELinux blocks `unix_stream_socket connectto` untrusted_app↔shell).
+  Adds `WakeReceiver` (earcon chime + wake display), `linkToDeath`, 60 s watchdog, log rotation,
+  persistent config and `SET_CHIME`.
 - `device/apply.sh`: fixed-location `TestProvider` (`setlocation.dex` + `location.conf`), 10 firmware
   log tags silenced via `persist.log.tag.*=S`, and the Hey Portal daemon start block (kills the
   previous instance, checks the listener in `/proc/net/tcp6`).

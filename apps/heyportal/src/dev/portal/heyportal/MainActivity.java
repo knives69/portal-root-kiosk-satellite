@@ -46,13 +46,14 @@ public class MainActivity extends Activity {
     private TextView statLastWakeValue;
     private TextView logTextView;
     private Switch autoLaunchSwitch;
+    private Switch chimeSwitch;
     private Button btnCycleKeyword;
 
     private boolean isPolling = false;
-    private boolean updatingSwitch = false;
+    private boolean updatingSwitches = false;
     private String activeKeyword = KEYWORDS[0];
 
-    private final BroadcastReceiver wakeReceiver = new BroadcastReceiver() {
+    private final BroadcastReceiver wakeUiReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             refreshData();
@@ -62,13 +63,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WakeReceiver.preloadChime(this);
         buildUI();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        registerReceiver(wakeReceiver, new IntentFilter("dev.portal.heyportal.ACTION_WAKE_DETECTED"));
+        registerReceiver(wakeUiReceiver, new IntentFilter(WakeReceiver.ACTION_LOCAL_UI_REFRESH));
         startPolling();
         refreshData();
     }
@@ -77,7 +79,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         try {
-            unregisterReceiver(wakeReceiver);
+            unregisterReceiver(wakeUiReceiver);
         } catch (Throwable ignored) {}
         stopPolling();
     }
@@ -105,14 +107,14 @@ public class MainActivity extends Activity {
 
     private void refreshData() {
         new Thread(() -> {
-            DaemonClient.Status s = DaemonClient.queryStatus();
-            String logContent = readRecentLog();
+            DaemonClient.Status s = DaemonClient.queryStatus(this);
+            String logContent = (s.logs != null && !s.logs.isEmpty()) ? s.logs : readRecentLog();
             handler.post(() -> updateUI(s, logContent));
         }).start();
     }
 
     private void updateUI(DaemonClient.Status s, String logContent) {
-        if (s.daemonOnline) {
+        if (s.daemonOnline && s.authenticated) {
             if (s.keyword != null && !s.keyword.isEmpty()) {
                 activeKeyword = s.keyword;
             }
@@ -133,7 +135,7 @@ public class MainActivity extends Activity {
                 statEnrollValue.setText("Idle (" + (s.error.isEmpty() ? activeKeyword : s.error) + ")");
                 statEnrollValue.setTextColor(Color.parseColor("#FDD663"));
             }
-            statDaemonValue.setText("UID " + s.uid + " (PID " + s.pid + ") · Online");
+            statDaemonValue.setText("UID " + s.uid + " (PID " + s.pid + ") · Auth OK");
             statDaemonValue.setTextColor(Color.parseColor("#81C995"));
             statCountValue.setText(String.valueOf(s.count));
 
@@ -144,11 +146,24 @@ public class MainActivity extends Activity {
                 statLastWakeValue.setText("None yet (Say 'Hey Portal' to test)");
             }
 
+            updatingSwitches = true;
             if (autoLaunchSwitch != null && autoLaunchSwitch.isChecked() != s.autoLaunch) {
-                updatingSwitch = true;
                 autoLaunchSwitch.setChecked(s.autoLaunch);
-                updatingSwitch = false;
             }
+            if (chimeSwitch != null && chimeSwitch.isChecked() != s.chimeEnabled) {
+                chimeSwitch.setChecked(s.chimeEnabled);
+            }
+            updatingSwitches = false;
+        } else if (s.daemonOnline) {
+            statusBadge.setText("▲  AUTH HANDSHAKE PENDING");
+            statusBadge.setTextColor(Color.parseColor("#FBBC04"));
+            statusBadge.setBackground(makePill(Color.parseColor("#332608"), Color.parseColor("#FBBC04"), 12));
+            statDaemonValue.setText("Authenticating (" + s.error + ")");
+            statDaemonValue.setTextColor(Color.parseColor("#FDD663"));
+            statEnrollValue.setText("Locked");
+            statEnrollValue.setTextColor(Color.parseColor("#9AA0A6"));
+            statCountValue.setText("-");
+            statLastWakeValue.setText("Waiting for Binder token delivery");
         } else {
             statusBadge.setText("✕  DAEMON OFFLINE · WAITING FOR ROOT");
             statusBadge.setTextColor(Color.parseColor("#EA4335"));
@@ -204,14 +219,14 @@ public class MainActivity extends Activity {
 
         // 1. Header
         TextView title = new TextView(this);
-        title.setText("Hey Portal — AudioService Wake Test");
+        title.setText("Hey Portal — AudioService Wake v1.2");
         title.setTextColor(Color.WHITE);
         title.setTextSize(22);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Testing Meta Portal native wake-word (audiomanager) -> Google Assistant");
+        subtitle.setText("Meta Portal native wake-word (audiomanager) -> Chime + Google Assistant");
         subtitle.setTextColor(Color.parseColor("#9AA0A6"));
         subtitle.setTextSize(13);
         subtitle.setPadding(0, dp(4), 0, dp(20));
@@ -251,19 +266,34 @@ public class MainActivity extends Activity {
         autoLaunchSwitch.setTextColor(Color.WHITE);
         autoLaunchSwitch.setTextSize(14);
         autoLaunchSwitch.setChecked(true);
-        autoLaunchSwitch.setPadding(0, dp(6), 0, dp(14));
+        autoLaunchSwitch.setPadding(0, dp(4), 0, dp(8));
         autoLaunchSwitch.setOnCheckedChangeListener((btn, isChecked) -> {
-            if (updatingSwitch) return;
-            new Thread(() -> DaemonClient.sendCommand("SET_AUTO_LAUNCH:" + isChecked)).start();
+            if (updatingSwitches) return;
+            new Thread(() -> DaemonClient.sendCommand(this, "SET_AUTO_LAUNCH:" + isChecked)).start();
         });
         cardAction.addView(autoLaunchSwitch);
+
+        chimeSwitch = new Switch(this);
+        chimeSwitch.setText("Play earcon chime & wake display on detection");
+        chimeSwitch.setTextColor(Color.WHITE);
+        chimeSwitch.setTextSize(14);
+        chimeSwitch.setChecked(true);
+        chimeSwitch.setPadding(0, dp(4), 0, dp(14));
+        chimeSwitch.setOnCheckedChangeListener((btn, isChecked) -> {
+            if (updatingSwitches) return;
+            new Thread(() -> DaemonClient.sendCommand(this, "SET_CHIME:" + isChecked)).start();
+        });
+        cardAction.addView(chimeSwitch);
 
         LinearLayout btnRow1 = new LinearLayout(this);
         btnRow1.setOrientation(LinearLayout.HORIZONTAL);
 
-        Button btnTestAssistant = makeButton("TEST ASSISTANT INTENT", Color.parseColor("#4285F4"));
+        Button btnTestAssistant = makeButton("TEST ASSISTANT", Color.parseColor("#4285F4"));
         btnTestAssistant.setOnClickListener(v -> {
             try {
+                if (chimeSwitch != null && chimeSwitch.isChecked()) {
+                    WakeReceiver.playChime(this);
+                }
                 Intent intent = new Intent(Intent.ACTION_VOICE_COMMAND);
                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(intent);
@@ -274,17 +304,26 @@ public class MainActivity extends Activity {
         });
         btnRow1.addView(btnTestAssistant, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
 
-        addHSpace(btnRow1, 12);
+        addHSpace(btnRow1, 10);
+
+        Button btnTestChime = makeButton("TEST CHIME", Color.parseColor("#00897B"));
+        btnTestChime.setOnClickListener(v -> {
+            WakeReceiver.playChime(this);
+            Toast.makeText(this, "Playing earcon chime", Toast.LENGTH_SHORT).show();
+        });
+        btnRow1.addView(btnTestChime, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.75f));
+
+        addHSpace(btnRow1, 10);
 
         Button btnReEnroll = makeButton("RE-ENROLL", Color.parseColor("#34A853"));
         btnReEnroll.setOnClickListener(v -> {
             new Thread(() -> {
-                DaemonClient.sendCommand("RE_ENROLL");
+                DaemonClient.sendCommand(this, "RE_ENROLL");
                 handler.post(this::refreshData);
             }).start();
             Toast.makeText(this, "Requested re-enrollment (" + activeKeyword + ")", Toast.LENGTH_SHORT).show();
         });
-        btnRow1.addView(btnReEnroll, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+        btnRow1.addView(btnReEnroll, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.85f));
 
         cardAction.addView(btnRow1);
 
@@ -299,7 +338,7 @@ public class MainActivity extends Activity {
             activeKeyword = next;
             btnCycleKeyword.setText("KEYWORD: " + next);
             new Thread(() -> {
-                DaemonClient.sendCommand("SET_KEYWORD:" + next);
+                DaemonClient.sendCommand(this, "SET_KEYWORD:" + next);
                 handler.post(this::refreshData);
             }).start();
             Toast.makeText(this, "Switching to " + next, Toast.LENGTH_SHORT).show();
@@ -311,7 +350,7 @@ public class MainActivity extends Activity {
         Button btnStop = makeButton("STOP", Color.parseColor("#D93025"));
         btnStop.setOnClickListener(v -> {
             new Thread(() -> {
-                DaemonClient.sendCommand("STOP");
+                DaemonClient.sendCommand(this, "STOP");
                 handler.post(this::refreshData);
             }).start();
             Toast.makeText(this, "Stopped wake-word recognition", Toast.LENGTH_SHORT).show();
@@ -325,7 +364,7 @@ public class MainActivity extends Activity {
 
         // 5. Live Events Log Card
         LinearLayout cardLog = makeCard();
-        cardLog.addView(makeSectionTitle("3. LIVE DETECTION EVENT LOG (/sdcard/heyportal_events.log)"));
+        cardLog.addView(makeSectionTitle("3. LIVE EVENT LOG (Authenticated IPC)"));
 
         logTextView = new TextView(this);
         logTextView.setText("No log events yet.");
@@ -386,10 +425,10 @@ public class MainActivity extends Activity {
         Button b = new Button(this);
         b.setText(text);
         b.setTextColor(Color.WHITE);
-        b.setTextSize(13);
+        b.setTextSize(12);
         b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setBackground(makePill(color, 0, 10));
-        b.setPadding(dp(16), dp(12), dp(16), dp(12));
+        b.setPadding(dp(12), dp(12), dp(12), dp(12));
         return b;
     }
 

@@ -136,4 +136,22 @@ public final class AudioServiceHelper {
             reply.recycle();
         }
     }
+
+    public static boolean linkToDeath(IBinder binder, IBinder.DeathRecipient recipient) {
+        if (binder == null || recipient == null) return false;
+        try {
+            binder.linkToDeath(recipient, 0);
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "linkToDeath failed", t);
+            return false;
+        }
+    }
+
+    public static void unlinkToDeath(IBinder binder, IBinder.DeathRecipient recipient) {
+        if (binder == null || recipient == null) return;
+        try {
+            binder.unlinkToDeath(recipient, 0);
+        } catch (Throwable ignored) {}
+    }
 }
